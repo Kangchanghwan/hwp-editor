@@ -296,6 +296,23 @@ for (const f of walk(outDir)) {
   }
 }
 
+// agent: Clipboard Share 의 AI 편집 함수(agent/*.js)를 studio 페이지에 함께 싣는다. 같은 출처라 facade 등을 직접 쓰고,
+// 부모와는 agent/bridge.js 의 postMessage 창구로만 대화한다. 내용 해시 폴더라 /assets/* 의 immutable 캐시를 그대로 쓴다.
+const AGENT_FILES = ['entry.js', 'bridge.js', 'hwpAgent.js', 'hwpAgentMethods.js']
+const agentSrc = join(root, 'agent')
+const agentHash = createHash('sha256')
+for (const f of AGENT_FILES) agentHash.update(f).update(readFileSync(join(agentSrc, f)))
+const agentDirName = `cb-agent-${agentHash.digest('hex').slice(0, 10)}`
+mkdirSync(join(outDir, 'assets', agentDirName), { recursive: true })
+for (const f of AGENT_FILES) cpSync(join(agentSrc, f), join(outDir, 'assets', agentDirName, f))
+{
+  const idxOut = join(outDir, 'index.html')
+  const page = readFileSync(idxOut, 'utf8')
+  if (!page.includes('</head>')) fail('index.html 에 </head> 가 없습니다')
+  writeFileSync(idxOut, page.replace('</head>', `  <script type="module" src="${up.base}assets/${agentDirName}/entry.js"></script>\n</head>`))
+}
+log(`에이전트 창구: assets/${agentDirName}/ (${AGENT_FILES.length}개 파일)`)
+
 // manifest.json: files the studio always fetches at start, for the host's progress bar.
 // url is relative to this site's root; est is the brotli transfer estimate.
 const assets = readdirSync(join(outDir, 'assets'))
@@ -334,6 +351,7 @@ writeFileSync(join(outDir, 'build-identity.json'), JSON.stringify({
   upstream: { repo: up.repo, tag: up.tag, commit: meta.upstreamCommit },
   core: { version: up.coreVersion, integrity: up.coreIntegrity, wasmSha256: meta.wasmSha256, wasmParts: meta.wasmParts },
   csBuild: ourCommit(),
+  agent: `assets/${agentDirName}/entry.js`,
   excludedFonts: up.excludedFonts,
   builtAt: new Date().toISOString(),
 }, null, 2) + '\n')

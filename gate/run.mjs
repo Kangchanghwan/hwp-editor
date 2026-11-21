@@ -165,7 +165,7 @@ const fail = (msg) => { report.errors.push(msg) }
 
 const headerRules = parseHeaders(readFileSync(join(outDir, '_headers'), 'utf8'))
 const studioSrv = staticServer(outDir, { headerRules, brotli: true })
-const hostSrv = staticServer(here, { extra: { '/node_modules/@rhwp/editor/': join(root, 'node_modules', '@rhwp', 'editor') } })
+const hostSrv = staticServer(here, { extra: { '/node_modules/@rhwp/editor/': join(root, 'node_modules', '@rhwp', 'editor'), '/agent/': join(root, 'agent') } })
 const studioPort = await listen(studioSrv)
 const hostPort = await listen(hostSrv)
 const studioOrigin = `http://127.0.0.1:${studioPort}`
@@ -236,6 +236,21 @@ try {
     if (mime.data?.toString('utf8') !== 'application/hwp+zip') fail('내보낸 HWPX 의 mimetype 이 application/hwp+zip 이 아닙니다')
     if (!report.checks.markerInSection0Xml) fail('내보낸 HWPX 의 Contents/section0.xml 에 넣은 글이 없습니다')
     report.checks.pageCount = g.pageCount
+
+    // agent (다른 출처 postMessage 창구)
+    const ag = g.agent || {}
+    report.checks.agent = ag
+    if (!g.agent) fail('에이전트 단계 결과가 없습니다')
+    else {
+      if (!(ag.outlineCount >= 1)) fail('agent.outline 이 문단을 돌려주지 않았습니다')
+      if (ag.expectMismatch !== 'EXPECT_MISMATCH') fail(`agent.replaceParagraph expect 불일치가 거절되지 않았습니다: ${ag.expectMismatch}`)
+      if (!ag.table || !ag.table.same || ag.table.rows !== 4 || ag.table.cols !== 4) fail('agent.insertTable 4x4 칸 글이 다릅니다')
+      if (!ag.editUndo || !ag.editUndo.oneStep) fail(`agent.edit + undo 가 한 단계가 아닙니다: ${JSON.stringify(ag.editUndo)}`)
+      if (!ag.reopen || !ag.reopen.sameTexts || !ag.reopen.tableSame || ag.reopen.pages1 !== ag.reopen.pages2) fail(`내보낸 뒤 다시 연 문서가 다릅니다: ${JSON.stringify(ag.reopen)}`)
+      if (ag.tablesAfterDelete !== 0) fail('agent.deleteObject 뒤에도 표가 남았습니다')
+      if (ag.dialogs && ag.dialogs.length) fail(`대화상자가 떠 있습니다: ${ag.dialogs.join(', ')}`)
+      if (ag.unknown !== 'UNKNOWN_METHOD') fail(`목록에 없는 함수가 거절되지 않았습니다: ${ag.unknown}`)
+    }
 
     // Font mapping: rename the fonts of the round-trip document to the excluded families,
     // load it, and record which font files the studio fetches for them.

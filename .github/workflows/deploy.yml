@@ -27,6 +27,9 @@ jobs:
 
       - run: npm ci --no-audit --no-fund
 
+      - name: Unit tests (agent)
+        run: npm test
+
       # vite result of the pinned upstream; the key changes when upstream.json or scripts change
       - name: Cache studio build
         uses: actions/cache@v4

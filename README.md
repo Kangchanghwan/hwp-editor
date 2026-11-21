@@ -30,6 +30,7 @@ Clipboard Share(https://clipboardapp.org)의 한글 문서 편집 화면에 ifra
 - AI 도우미와 외부 CDN 웹폰트를 빌드에서 껐다 (`RHWP_WITHOUT_AI=1`, `RHWP_DISABLE_EXTERNAL_WEBFONTS=1`).
 - 엔진 wasm(약 27.9MB)을 두 조각으로 나눠 싣는다. Cloudflare Pages 는 파일 하나가 25 MiB 를 넘으면 올리지 못하기 때문이다.
   wasm-bindgen 로더(`rhwp.js`)를 고쳐 두 조각을 동시에 받아 하나의 wasm 으로 이어 읽게 했다. 빌드는 이어 붙인 결과가 원본과 같은지 확인한다.
+- Clipboard Share 의 AI 편집 함수(`agent/`)를 `index.html` 에 함께 싣는다 (아래 "에이전트 창구").
 
 ## 뺀 글꼴과 이유
 
@@ -93,9 +94,26 @@ host 페이지는 본 사이트처럼 `@rhwp/editor` 의 `createStudio(el, { stu
 4. 문서의 글꼴 이름을 뺀 글꼴 가족 이름으로 바꿔 다시 열고, 편집기가 Pretendard 파일을 받는지 본다.
 5. 전체 요청 가운데 localhost 밖으로 나간 요청, 4xx/5xx, 실패한 요청, 뺀 글꼴 파일 요청이 하나도 없어야 한다.
 6. host 에서 `view:theme-dark`, `view:skin-flat` 커맨드로 편집기 테마를 바꿀 수 있는지 본다 (다른 출처라 localStorage 를 직접 쓸 수 없으므로).
-7. service worker 가 등록되지 않았는지, `index.html` 응답에 CSP 와 `no-cache` 가 있는지, 뺀 글꼴 주소가 404 인지 본다.
+7. 에이전트 창구: host 가 `agent/client.js` 로 다른 출처에서 outline, replaceParagraph(expect 불일치 거절 포함), insertTable 4x4, edit + undo 한 단계,
+   exportHwpx 뒤 다시 열어 글·표·쪽 수 비교, deleteObject, 목록에 없는 함수 거절을 확인한다.
+8. service worker 가 등록되지 않았는지, `index.html` 응답에 CSP 와 `no-cache` 가 있는지, 뺀 글꼴 주소가 404 인지 본다.
 
 gate 의 정적 서버는 `out/_headers` 를 적용하고 brotli 로 압축해서 보내므로 report 의 `transfer` 값은 처음 열 때 받는 양에 가깝다.
+
+## 에이전트 창구
+
+`agent/` 는 Clipboard Share 에서 옮겨 온 AI 편집 함수다 (원래 Clipboard Share PR #112 의 `frontend/src/services/hwpAgent.js`).
+대화상자, 클릭, 키보드 없이 문단, 글자 모양, 표, 개체를 고친다. 이 함수들은 studio 내부(hwpctrl facade 의 transaction,
+명령 오류 경계, 대화상자 DOM)를 써야 해서 같은 출처인 편집기 쪽에 둔다.
+
+- `agent/entry.js`: 빌드가 `assets/cb-agent-<해시>/` 로 복사하고 `index.html` 에 넣는다. iframe 으로 임베드됐을 때만 켠다.
+- `agent/bridge.js`: 부모의 `window.postMessage` 요청 `{ cbHwpAgent: 1, id, method, args }` 를 받아 `{ cbHwpAgent: 1, id, ack: true }` 로 바로 답하고,
+  끝나면 `{ cbHwpAgent: 1, id, ok, result | error }` 로 답한다. `@rhwp/editor` SDK 의 MessageChannel 과는 섞지 않는다.
+  부모 출처는 `frame-ancestors` 와 같은 목록으로 검사하고, 메서드는 `agent/hwpAgentMethods.js` 목록(guard 제외)만 받는다. 결과의 바이트는 transferable 로 넘긴다.
+- `agent/client.js`: 부모 쪽 창구. import 없는 한 파일이라 Clipboard Share 가 `frontend/src/services/hwpAgentClient.js` 로 복사해 쓴다.
+  함수를 넘기는 `guard(fn)` 은 부모에서 돌리며 `dialogs()` 를 묻고, `edit(label, a => ...)` 은 호출을 기록해 계획으로 보낸다
+  (앞 호출 결과는 그대로 다음 인자로 넘길 수 있고, 결과로 계산이나 분기는 할 수 없다).
+- 단위 시험: `npm test` (vitest, CI 에서도 돈다).
 
 ## 배포
 

@@ -11,10 +11,12 @@
     "build": "node scripts/build.mjs",
     "build:clean": "node scripts/build.mjs --no-cache",
     "gate": "node gate/run.mjs",
-    "check-limits": "node scripts/check-limits.mjs out"
+    "check-limits": "node scripts/check-limits.mjs out",
+    "test": "vitest run"
   },
   "devDependencies": {
     "@rhwp/editor": "0.9.1",
-    "playwright": "1.65.1"
+    "playwright": "1.65.1",
+    "vitest": "^4.0.9"
   }
 }
