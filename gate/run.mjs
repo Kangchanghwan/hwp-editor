@@ -246,7 +246,13 @@ try {
       (_, pre) => `${pre}${EXCLUDED_FAMILIES[i++ % EXCLUDED_FAMILIES.length]}"`), 'utf8')
     report.checks.fontDocRenamedFaces = i
     const fontDoc = zipStored(entries)
+    await page.waitForTimeout(500)
     const before = requests.length
+    report.firstOpen = {
+      note: '편집기 부팅부터 합성 문서 왕복까지 studio origin 응답 본문 바이트 (brotli quality 5, woff2 는 그대로)',
+      requests: requests.filter((r) => r.url.startsWith(studioOrigin)).length,
+      bodyBytes: requests.filter((r) => r.url.startsWith(studioOrigin)).reduce((a, r) => a + (r.bodyBytes || 0), 0),
+    }
     const fontLoad = await page.evaluate((b64) => window.__gateLoad(b64), fontDoc.toString('base64'))
     await page.waitForTimeout(3000)
     const fontReqs = requests.slice(before).filter((r) => r.url.includes('/fonts/')).map((r) => r.url.replace(studioOrigin, ''))
@@ -259,6 +265,13 @@ try {
   const studioFrame = page.frames().find((f) => f.url().startsWith(studioOrigin))
   if (!studioFrame) fail('studio iframe 을 찾지 못했습니다')
   else {
+    report.checks.themeAfterCommands = await studioFrame.evaluate(() => ({
+      mode: document.documentElement.dataset.themeMode,
+      effective: document.documentElement.dataset.themeEffective,
+      skin: document.documentElement.dataset.themeSkin || 'default',
+    }))
+    const th = report.checks.themeAfterCommands
+    if (th.effective !== 'dark' || th.skin !== 'flat') fail(`테마 커맨드가 적용되지 않았습니다: ${JSON.stringify(th)}`)
     report.checks.serviceWorkers = await studioFrame.evaluate(async () =>
       navigator.serviceWorker ? (await navigator.serviceWorker.getRegistrations()).length : 0)
     if (report.checks.serviceWorkers !== 0) fail(`service worker 가 ${report.checks.serviceWorkers}개 등록됐습니다`)
@@ -268,6 +281,9 @@ try {
   report.checks.indexCacheControl = idxResp.headers.get('cache-control')
   if (!/frame-ancestors https:\/\/clipboardapp\.org https:\/\/www\.clipboardapp\.org/.test(report.checks.csp || '')) fail('index.html 응답에 frame-ancestors CSP 가 없습니다')
   if (report.checks.indexCacheControl !== 'no-cache') fail('index.html 이 no-cache 가 아닙니다')
+  const missing = await fetch(studioOrigin + '/fonts/' + excluded[0])
+  report.checks.excludedFontHttpStatus = missing.status
+  if (missing.status !== 404) fail(`제외한 글꼴 파일이 ${missing.status} 로 응답합니다`)
   await page.waitForTimeout(1500) // let late font requests finish
 } catch (e) {
   fail(`예외: ${String(e && e.stack || e).slice(0, 800)}`)

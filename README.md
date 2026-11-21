@@ -67,12 +67,14 @@ upstream 빌드 결과는 `.cache/studio-<key>/` 에 캐시한다. key 는 `upst
 
 - `manifest.json`: 편집기가 시작할 때 꼭 받는 파일 목록(사이트 루트 기준 경로, 원본 크기, brotli 전송량 추정). 본 사이트가 이 목록으로 엔진을 미리 받고 진행률을 보여 준다.
 - `build-identity.json`: upstream 태그와 커밋, 엔진 버전, 이 저장소의 커밋(`csBuild`).
+- `404.html`: 없는 경로가 index.html(200)로 대신 응답되지 않게 한다.
 - `_headers`: Cloudflare Pages 응답 헤더.
   - 모든 경로: `Content-Security-Policy` (`frame-ancestors https://clipboardapp.org https://www.clipboardapp.org https://*.vercel.app http://localhost:* http://127.0.0.1:*` 포함)
   - `/assets/*`: 해시가 붙은 파일이라 1년 immutable 캐시
   - `/fonts/*`: 30일 캐시
   - `/`, `/index.html`, `/manifest.json`, `/build-identity.json`: `no-cache`
   - `/assets/*`, `/fonts/*`, `/manifest.json`, `/build-identity.json`: `Access-Control-Allow-Origin: *` (본 사이트가 다른 출처에서 미리 받기와 글꼴을 쓸 수 있게)
+  - `/assets/*`, `/fonts/*`: `Timing-Allow-Origin: *` (본 사이트가 캐시에서 나온 응답인지 `transferSize` 로 알 수 있게)
 - `licenses/`: upstream MIT 라이선스, 엔진의 서드파티 고지, 이 저장소의 NOTICE.
 
 ## 점검(gate)
@@ -90,7 +92,8 @@ host 페이지는 본 사이트처럼 `@rhwp/editor` 의 `createStudio(el, { stu
 3. `hwpctrl.exportBytes('hwpx')` 로 내보내고 다시 연 뒤 `GetTextFile` 에 그 글이 있는지 본다. Node 에서도 zip 을 풀어 `Contents/section0.xml` 에 글이 있는지 확인한다.
 4. 문서의 글꼴 이름을 뺀 글꼴 가족 이름으로 바꿔 다시 열고, 편집기가 Pretendard 파일을 받는지 본다.
 5. 전체 요청 가운데 localhost 밖으로 나간 요청, 4xx/5xx, 실패한 요청, 뺀 글꼴 파일 요청이 하나도 없어야 한다.
-6. service worker 가 등록되지 않았는지, `index.html` 응답에 CSP 와 `no-cache` 가 있는지 본다.
+6. host 에서 `view:theme-dark`, `view:skin-flat` 커맨드로 편집기 테마를 바꿀 수 있는지 본다 (다른 출처라 localStorage 를 직접 쓸 수 없으므로).
+7. service worker 가 등록되지 않았는지, `index.html` 응답에 CSP 와 `no-cache` 가 있는지, 뺀 글꼴 주소가 404 인지 본다.
 
 gate 의 정적 서버는 `out/_headers` 를 적용하고 brotli 로 압축해서 보내므로 report 의 `transfer` 값은 처음 열 때 받는 양에 가깝다.
 

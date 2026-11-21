@@ -314,6 +314,10 @@ const manifestFiles = rels.filter((r) => existsSync(join(outDir, r))).map((rel) 
 })
 writeFileSync(join(outDir, 'manifest.json'), JSON.stringify({ v: 1, tag: up.tag, base: up.base, files: manifestFiles }))
 
+// 404.html: without it Cloudflare Pages answers unknown paths with index.html and status 200,
+// which would hide requests for files that are not shipped
+writeFileSync(join(outDir, '404.html'), '<!doctype html><meta charset="utf-8"><title>404</title><p>없는 파일입니다.</p>\n')
+
 // build-identity.json
 function ourCommit() {
   if (process.env.CS_BUILD) return process.env.CS_BUILD
@@ -336,6 +340,8 @@ writeFileSync(join(outDir, 'build-identity.json'), JSON.stringify({
 
 // _headers (Cloudflare Pages). Each header name is set by one rule only, because Pages
 // joins values with a comma when several matching rules set the same header.
+// CORS and Timing-Allow-Origin on static files let clipboardapp.org preload them with a
+// progress bar and tell cache hits (transferSize 0) from downloads.
 const frameAncestors = 'frame-ancestors https://clipboardapp.org https://www.clipboardapp.org https://*.vercel.app http://localhost:* http://127.0.0.1:*'
 const csp = [
   "default-src 'self'",
@@ -359,10 +365,12 @@ writeFileSync(join(outDir, '_headers'), [
   '/assets/*',
   '  Cache-Control: public, max-age=31536000, immutable',
   '  Access-Control-Allow-Origin: *',
+  '  Timing-Allow-Origin: *',
   '',
   '/fonts/*',
   '  Cache-Control: public, max-age=2592000',
   '  Access-Control-Allow-Origin: *',
+  '  Timing-Allow-Origin: *',
   '',
   noCacheBlock('/'),
   noCacheBlock('/index.html'),

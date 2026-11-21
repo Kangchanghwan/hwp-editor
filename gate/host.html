@@ -60,6 +60,11 @@ window.__gate = { done: false, steps }
     const svg = await studio.getPageSvg(0)
     step('text-after-reload', { hasMarker: String(textAfter).includes(marker), svgBytes: svg.length })
 
+    // theme from the host: the cross-origin replacement for writing localStorage 'rhwp-settings'
+    const themeDark = await studio.commands.execute('view:theme-dark')
+    const skinFlat = await studio.commands.execute('view:skin-flat')
+    step('theme', { themeDark, skinFlat })
+
     Object.assign(window.__gate, {
       done: true,
       ok: true,
