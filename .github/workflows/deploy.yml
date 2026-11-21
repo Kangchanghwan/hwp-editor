@@ -1,0 +1,108 @@
+name: build-gate-deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      # vite result of the pinned upstream; the key changes when upstream.json or scripts change
+      - name: Cache studio build
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: studio-${{ hashFiles('upstream.json', 'scripts/**') }}
+
+      - name: Build
+        env:
+          CS_BUILD: ${{ github.sha }}
+        run: node scripts/build.mjs
+
+      - name: Check Cloudflare Pages limits (< 20,000 files, <= 25 MiB each)
+        run: node scripts/check-limits.mjs out
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Gate
+        run: node gate/run.mjs
+
+      - name: Upload gate report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-report
+          path: |
+            gate/report.json
+            .cache/build-report.json
+          if-no-files-found: ignore
+
+      - name: Upload site
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: site
+          path: out/
+          include-hidden-files: true
+          retention-days: 7
+
+  deploy:
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: site
+          path: out
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Deploy to Cloudflare Pages
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::notice::CLOUDFLARE_API_TOKEN 또는 CLOUDFLARE_ACCOUNT_ID 시크릿이 없어 배포를 건너뜁니다."
+            exit 0
+          fi
+          test -f out/_headers
+          npx --yes wrangler@4.166.0 pages deploy out \
+            --project-name hwp-editor \
+            --branch main \
+            --commit-hash "${{ github.sha }}" \
+            --commit-message "hwp-editor ${{ github.sha }}"
