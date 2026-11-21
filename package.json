@@ -1,0 +1,20 @@
+{
+  "name": "hwp-editor",
+  "private": true,
+  "type": "module",
+  "description": "Clipboard Share 에 iframe 으로 넣는 rhwp-studio(HWP/HWPX 편집기) 별도 배포 빌드",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "build:clean": "node scripts/build.mjs --no-cache",
+    "gate": "node gate/run.mjs",
+    "check-limits": "node scripts/check-limits.mjs out"
+  },
+  "devDependencies": {
+    "@rhwp/editor": "0.9.1",
+    "playwright": "1.65.1"
+  }
+}

@@ -1,0 +1,5 @@
+node_modules/
+out/
+.cache/
+gate/report.json
+.DS_Store
