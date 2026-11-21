@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>hwp-editor gate host</title>
+<style>html,body{margin:0;height:100%}#editor{width:1200px;height:800px}</style>
+</head>
+<body>
+<div id="editor"></div>
+<script type="module">
+// Gate host: embeds the studio from another origin through @rhwp/editor, exactly like
+// clipboardapp.org will. Results are exposed on window.__gate for gate/run.mjs.
+import { createStudio } from '/node_modules/@rhwp/editor/index.js'
+
+const params = new URLSearchParams(location.search)
+const studioUrl = params.get('studio')
+const marker = params.get('marker')
+const steps = []
+const step = (name, data) => { steps.push({ name, at: Math.round(performance.now()), ...(data || {}) }) }
+const b64 = (u8) => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode(...u8.subarray(i, i + 0x8000)); return btoa(s) }
+
+window.__gate = { done: false, steps }
+;(async () => {
+  try {
+    const studio = await createStudio(document.getElementById('editor'), { studioUrl, plugins: ['hwpctrl'] })
+    step('createStudio')
+    // used by gate/run.mjs for the font mapping check (a document that names excluded fonts)
+    window.__gateLoad = async (b64) => {
+      const u8 = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+      const r = await studio.loadFile(u8, 'fonts.hwpx', { skipUnsavedGuard: true })
+      const svg = await studio.getPageSvg(0)
+      const text = await studio.hwpctrl.call('GetTextFile', ['TEXT', ''])
+      return { pageCount: r.pageCount, svgBytes: svg.length, text: String(text).slice(0, 200) }
+    }
+    const plugins = await studio.plugins.list()
+    step('plugins', { plugins })
+
+    // 1. synthetic HWPX: a new blank document made by the engine, exported as HWPX bytes
+    const nd = await studio.commands.execute('file:new-doc', {}, { allowDialog: true })
+    step('new-doc', { result: nd })
+    const synthetic = await studio.exportHwpx()
+    step('export-synthetic', { bytes: synthetic.length })
+
+    // 2. load those bytes from the host side
+    const loaded = await studio.loadFile(synthetic, 'synthetic.hwpx')
+    step('load-synthetic', { pageCount: loaded.pageCount })
+
+    // 3. insert text through HwpCtrl in one batch
+    const batch = await studio.hwpctrl.batch((h) => { h.SetTextFile(marker, 'TEXT', '') })
+    step('batch', { result: batch })
+    const textBefore = await studio.hwpctrl.call('GetTextFile', ['TEXT', ''])
+    step('text-before-export', { hasMarker: String(textBefore).includes(marker) })
+
+    // 4. export and re-open the exported bytes
+    const exported = await studio.hwpctrl.exportBytes('hwpx')
+    step('exportBytes', { bytes: exported.length })
+    const reloaded = await studio.loadFile(exported, 'roundtrip.hwpx', { skipUnsavedGuard: true })
+    step('reload', { pageCount: reloaded.pageCount })
+    const textAfter = await studio.hwpctrl.call('GetTextFile', ['TEXT', ''])
+    const svg = await studio.getPageSvg(0)
+    step('text-after-reload', { hasMarker: String(textAfter).includes(marker), svgBytes: svg.length })
+
+    Object.assign(window.__gate, {
+      done: true,
+      ok: true,
+      syntheticBytes: synthetic.length,
+      exportedBytes: exported.length,
+      exportedBase64: b64(exported),
+      textAfter: String(textAfter).slice(0, 500),
+      markerInTextAfterReload: String(textAfter).includes(marker),
+      pageCount: reloaded.pageCount,
+    })
+  } catch (e) {
+    Object.assign(window.__gate, { done: true, ok: false, error: String(e && e.stack || e) })
+  }
+})()
+</script>
+</body>
+</html>
